@@ -41,6 +41,10 @@ class ServerlessMonoRepo {
     const custom = this.serverless.service.custom || {}
     this.settings = custom.serverlessMonoRepo || {}
     this.settings.path = this.settings.path || this.serverless.config.servicePath
+    
+    // Move up a directory
+    const splitPath = this.settings.path.split('/')
+    this.settings.workspacePath = splitPath.slice(0, splitPath.length - 1).join('/')
   }
 
   async linkPackage (name, fromPath, toPath, created, resolved) {
@@ -107,18 +111,54 @@ class ServerlessMonoRepo {
 
     // Clean node_modules
     await clean(path.join(this.settings.path, 'node_modules'))
+
+    const peripheralWorkspaces = this.getWorkspaceDependencies()
+    await Promise.all(peripheralWorkspaces.map(workspace => clean(path.join(this.settings.workspacePath, workspace, `node_modules`))))
   }
 
   async initialise () {
     // Read package JSON
+    this.log('Creating dependency symlinks')
     const { dependencies = {} } = require(path.join(this.settings.path, 'package.json'))
+    const { workspaces = [] } = require(path.join(this.settings.workspacePath, 'package.json'))
+    const workspacesToLink = this.getWorkspaceDependencies()
+
+    for (let i = 0; i < workspaces.length; ++i) {
+      const currentWorkspace = workspaces[i]
+      if (dependencies[currentWorkspace]) {
+        workspacesToLink.push(currentWorkspace)
+      }
+    }
+
+    // Link packages that current package depends on
+    await Promise.all(workspacesToLink.map(currentWorkspace => this.processLinkages(path.join(this.settings.workspacePath, currentWorkspace))))
 
     // Link all dependent packages
-    this.log('Creating dependency symlinks')
+    await this.processLinkages(this.settings.path)
+  }
+
+  async processLinkages (linkagePath) {
+    const { dependencies = {} } = require(path.join(linkagePath, 'package.json'))
     const contents = new Set()
-    await Promise.all(Object.keys(dependencies).map(name =>
-      this.linkPackage(name, this.settings.path, path.join(this.settings.path, 'node_modules'), contents, [])
+    await Promise.all(Object.keys(dependencies).map(name => {
+        return this.linkPackage(name, linkagePath, path.join(linkagePath, 'node_modules'), contents, [])
+      }
     ))
+  }
+
+  getWorkspaceDependencies() {
+    const { dependencies = {} } = require(path.join(this.settings.path, 'package.json'))
+    const { workspaces = [] } = require(path.join(this.settings.workspacePath, 'package.json'))
+    const relevantWorkspaces = []
+
+    for (let i = 0; i < workspaces.length; ++i) {
+      const currentWorkspace = workspaces[i]
+      if (dependencies[currentWorkspace]) {
+        relevantWorkspaces.push(currentWorkspace)
+      }
+    }
+
+    return relevantWorkspaces
   }
 }
 
