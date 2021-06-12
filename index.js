@@ -57,7 +57,19 @@ class ServerlessMonoRepo {
     const paths = getNodeModulePaths(fromPath)
 
     // Get package file path
-    const pkg = require.resolve(path.join(name, 'package.json'), { paths })
+    let pkg
+    try {
+      pkg = require.resolve(path.join(name, 'package.json'), { paths })
+    } catch (e) {
+      // Package resolve error (can happen if there is an `exports` in the package.json and the path is [package-name]/package.json).  Swallow the error
+      // and try again with just the package name.  See:
+      // - https://nodejs.org/api/modules.html#modules_require_resolve_request_options
+      // - https://nodejs.org/api/packages.html#packages_main_entry_point_export
+    }
+
+    if (!pkg) {
+      pkg = require.resolve(name, {paths})
+    }
 
     // Get relative path to package & create link if not an embedded node_modules
     const target = path.relative(path.join(toPath, path.dirname(name)), path.dirname(pkg))
