@@ -67,8 +67,17 @@ class ServerlessMonoRepo {
       // - https://nodejs.org/api/packages.html#packages_main_entry_point_export
     }
 
+    // If the above failed, doing a require.resolve on package.json where there is an `exports` in the package.json uses a subdirectory instead of the full package directory,
+    // which will cause a failure.  Instead, just find where the package.json is located and use that directory instead.
     if (!pkg) {
-      pkg = require.resolve(name, {paths})
+      for (let i = 0; i < paths.length; ++i) {
+        const pth = paths[i]
+        
+        if (fs.existsSync(path.join(pth, name, 'package.json'))) {
+          pkg = path.join(pth, name, 'package.json')
+          break;
+        }
+      }
     }
 
     // Get relative path to package & create link if not an embedded node_modules
